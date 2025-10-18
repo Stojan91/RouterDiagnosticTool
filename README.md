@@ -1,4 +1,4 @@
-# RouterDiagnosticTool[README.md](https://github.com/user-attachments/files/22987282/README.md)
+
 # 🔍 Router Diagnostic Tool
 
 **Professional router diagnostic application with a database of 1000+ router models (2015-2025)**
