@@ -82,9 +82,6 @@ router-diagnostic-tool/
 ├── router_diag_gui_multilang.py   # Main GUI application
 ├── router_database.py            # Database library with hardcoded image URLs
 ├── router_database.csv           # Router specifications database (~829 models)
-├── expand_router_database.py     # Script to add extra columns (SIM, USB, PoE, etc.)
-├── add_image_urls_to_database.py # Script to add image URLs to CSV
-├── final_router_db.py            # Script to regenerate database (3000+ models)
 ├── pic.jpg                       # Screenshot displayed above
 ├── requirements.txt              # Python dependencies
 └── README.md                     # Project documentation (this file)
