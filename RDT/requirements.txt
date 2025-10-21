@@ -1,0 +1,13 @@
+# Router Diagnostic Tool - Requirements
+# Python dependencies for the application
+
+# Image processing and display
+pillow>=10.0.0
+
+# HTTP requests for fetching router images
+requests>=2.31.0
+
+# HTML parsing for Google Images scraping
+beautifulsoup4>=4.12.0
+
+# Note: tkinter is included with Python standard library (no installation needed)
