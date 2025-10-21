@@ -12,7 +12,7 @@ A comprehensive, multilingual (🇵🇱 Polish / 🇬🇧 English) router diagno
 
 ![Application Screenshot](pic.jpg)
 
-*(Add a screenshot of your application as `screenshot.png` in the repository root)*
+
 
 ---
 
