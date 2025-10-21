@@ -1,415 +1,247 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
-from router_database import ROUTER_DATABASE, get_all_models, get_producers, search_routers
-import subprocess
-import platform
+from tkinter import ttk, messagebox, scrolledtext, filedialog
+import subprocess, platform, threading, csv, requests
+from io import BytesIO
+from bs4 import BeautifulSoup
+
 try:
-    from PIL import Image, ImageTk, ImageDraw, ImageFont
+    from PIL import Image, ImageTk
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-import requests
-from bs4 import BeautifulSoup
-from io import BytesIO
-import threading
 
-TRANSLATIONS = {
-    'pl': {
-        'title': 'Diagnostyka Routerów - Baza 829 Modeli',
-        'db_info': 'Baza danych: {} modeli routerów (2005-2025)',
-        'params': 'Parametry diagnostyki',
-        'ip_label': 'Adres IP routera:',
-        'ping_btn': '📡 Ping',
-        'producer_label': 'Wybierz producenta:',
-        'model_label': 'Wybierz model routera:',
-        'search_label': 'Wyszukaj model:',
-        'search_btn': '🔎 Szukaj',
-        'show_btn': '📊 Pokaż specyfikację',
-        'clear_btn': '🗑️ Wyczyść',
-        'results': 'Wyniki diagnostyki',
-        'status_ready': 'Gotowy do pracy',
-        'status_found': 'Znaleziono {} modeli producenta {}',
-        'status_search': 'Znaleziono {} modeli pasujących do \'{}\'',
-        'status_ping': 'Wykonywanie ping do {}...',
-        'status_completed': 'Ping zakończony',
-        'status_displayed': 'Wyświetlono specyfikację: {}',
-        'warn_no_keyword': 'Brak słowa kluczowego',
-        'warn_enter_keyword': 'Wprowadź słowo do wyszukania',
-        'warn_no_ip': 'Brak IP',
-        'warn_enter_ip': 'Wprowadź adres IP routera',
-        'warn_no_selection': 'Brak wyboru',
-        'warn_select_model': 'Wybierz model routera z listy',
-        'no_spec': 'Nie znaleziono specyfikacji dla wybranego modelu.',
-        'connection_test': '=== Test połączenia z routerem {} ===\n\n',
-        'spec_header': '  SPECYFIKACJA ROUTERA: {}\n',
-        'language': 'Język:',
-        'router_images': 'Zdjęcia Routera (Google)',
-        'loading_images': 'Pobieranie zdjęć...',
-        'select_router': 'Wybierz router\naby zobaczyć zdjęcia',
+from router_database import ROUTER_DATABASE, get_all_models, get_producers, search_routers
+from network_scanner import scan_network
+from firmware_checker import check_firmware_updates
+from speed_test import run_speed_test
+from router_comparison import compare_routers
+
+THEMES = {
+    'light': {
+        'bg':'#ecf0f1','fg':'#2c3e50',
+        'header_bg':'#2c3e50','header_fg':'white',
+        'btn_bg':'#3498db','btn_fg':'white',
+        'panel_bg':'#ffffff','text_bg':'#ffffff','text_fg':'#000000'
     },
-    'en': {
-        'title': 'Router Diagnostic Tool - 829 Models Database',
-        'db_info': 'Database: {} router models (2005-2025)',
-        'params': 'Diagnostic Parameters',
-        'router_images': 'Router Images (Google)',
-        'loading_images': 'Loading images...',
-        'select_router': 'Select a router\nto view images',
+    'dark': {
+        'bg':'#1e1e1e','fg':'#d4d4d4',
+        'header_bg':'#252526','header_fg':'#cccccc',
+        'btn_bg':'#0e639c','btn_fg':'white',
+        'panel_bg':'#252526','text_bg':'#1e1e1e','text_fg':'#d4d4d4'
     }
 }
 
-def google_images_scrape(query, max_images=3):
-    """Scrape Google Images, POMIJA pierwsze img (logo)"""
-    url = f"https://www.google.com/search?q={query.replace(' ', '+')}+router&tbm=isch"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
+TEXTS = {
+    'pl': {
+        'title':'Diagnostyka Routerów','ping':'📡 Ping','scan':'🌐 Skan sieci','firmware':'🔧 Sprawdź Firmware',
+        'speed':'⚡ Test prędkości','compare':'⚖️ Porównaj','export':'📄 Export CSV','lang':'PL/EN',
+        'theme':'Motyw:','params':'Parametry diagnostyki','ip':'Adres IP:','producer':'Producent:',
+        'model':'Model:','search':'Wyszukaj:','search_btn':'🔎 Szukaj','show':'📊 Pokaż Specyfikację',
+        'clear':'🗑️ Wyczyść','results':'Wyniki','images':'Zdjęcia','loading':'Ładowanie...','select':'Wybierz router',
+        'enter_ip':'Wprowadź IP','select_models':'Wybierz dwa modele','ready':'Gotowy'
+    },
+    'en': {
+        'title':'Router Diagnostic','ping':'📡 Ping','scan':'🌐 Network Scan','firmware':'🔧 Check Firmware',
+        'speed':'⚡ Speed Test','compare':'⚖️ Compare','export':'📄 Export CSV','lang':'EN/PL',
+        'theme':'Theme:','params':'Diagnostic Parameters','ip':'Router IP:','producer':'Producer:',
+        'model':'Model:','search':'Search:','search_btn':'🔎 Search','show':'📊 Show Specs',
+        'clear':'🗑️ Clear','results':'Results','images':'Images','loading':'Loading...','select':'Select router',
+        'enter_ip':'Enter IP','select_models':'Select two models','ready':'Ready'
     }
+}
+
+def tr(key,lang):
+    return TEXTS[lang].get(key,key)
+
+def fetch_images(model,count=3):
+    url=f"https://www.google.com/search?q={model.replace(' ','+')}+router&tbm=isch"
     try:
-        html = requests.get(url, headers=headers, timeout=10).text
-    except Exception as e:
-        print("Google request failed:", e)
+        html=requests.get(url,headers={'User-Agent':'Mozilla/5.0'},timeout=5).text
+        soup=BeautifulSoup(html,'html.parser')
+        imgs=[img.get('src') or img.get('data-src') for img in soup.find_all('img')[1:count+1]]
+        return [u for u in imgs if u and u.startswith('http')]
+    except:
         return []
 
-    soup = BeautifulSoup(html, "html.parser")
-    images = []
-    img_tags = soup.find_all("img")
-    # POMIŃ pierwszy obrazek, bo to logo Google
-    for img_tag in img_tags[1:]:
-        src = img_tag.get("src") or img_tag.get("data-src")
-        if src and src.startswith("http"):
-            images.append(src)
-        if len(images) >= max_images:
-            break
-    return images
+class App:
+    def __init__(self,root):
+        self.root=root;self.lang='pl';self.theme='light';self.widgets=[]
+        self.build_ui()
 
+    def build_ui(self):
+        # Clear
+        for w in self.root.winfo_children(): w.destroy()
+        self.widgets.clear()
 
-def create_fallback_placeholder(model, producer, width=500, height=180):
-    if not PIL_AVAILABLE:
-        return None
-    img = Image.new('RGB', (width, height), color='#34495e')
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        shade = int(52 + (y / height) * 20)
-        color = f'#{shade:02x}{62 + int(y/height*10):02x}{80:02x}'
-        draw.line([(0, y), (width, y)], fill=color)
-    draw.rectangle([10, 10, width-10, height-10], outline='#3498db', width=3)
-    try:
-        font = ImageFont.truetype("arial.ttf", 18)
-    except:
-        font = ImageFont.load_default()
-    text_lines = [f"📡 {producer}", model.replace(producer, "").strip()[:40], "Brak zdjęcia"]
-    y_pos = 50
-    for line in text_lines:
+        t=lambda k:tr(k,self.lang); th=THEMES[self.theme]
+        self.root.title(t('title'));self.root.configure(bg=th['bg']);self.root.geometry('1400x800')
+
+        # Toolbar
+        tb=tk.Frame(self.root,bg=th['header_bg']);tb.pack(fill=tk.X)
+        for key,cmd in [('scan',self.scan_network),('firmware',self.check_firmware),
+                        ('speed',self.speed_test),('compare',self.compare_routers),
+                        ('export',self.export_csv)]:
+            b=tk.Button(tb,text=t(key),command=cmd,bg=th['btn_bg'],fg=th['btn_fg'])
+            b.pack(side=tk.LEFT,padx=2,pady=5);self.widgets.append((b,key))
+        bl=tk.Button(tb,text=t('lang'),command=self.toggle_lang,bg=th['btn_bg'],fg=th['btn_fg'])
+        bl.pack(side=tk.RIGHT,padx=2);self.widgets.append((bl,None))
+        tk.Label(tb,text=t('theme'),bg=th['header_bg'],fg=th['header_fg']).pack(side=tk.RIGHT)
+        tv=tk.StringVar(value=self.theme)
+        cb=ttk.Combobox(tb,textvariable=tv,values=list(THEMES),state='readonly',width=6)
+        cb.pack(side=tk.RIGHT,padx=2);tv.trace('w',lambda *a:self.apply_theme(tv.get()))
+
+        # Main split
+        main=tk.Frame(self.root,bg=th['bg']);main.pack(fill=tk.BOTH,expand=True,padx=10,pady=10)
+        left=tk.Frame(main,bg=th['bg']);left.pack(side=tk.LEFT,fill=tk.BOTH,expand=True,padx=(0,5))
+        right=tk.Frame(main,bg=th['bg'],width=350);right.pack(side=tk.RIGHT,fill=tk.Y);right.pack_propagate(False)
+
+        # Input & controls
+        inp=tk.LabelFrame(left,text=t('params'),bg=th['panel_bg'],fg=th['fg']);inp.pack(fill=tk.X,pady=(0,5))
+        # IP
+        lip=tk.Label(inp,text=t('ip'),bg=th['panel_bg'],fg=th['fg']);lip.grid(row=0,column=0);self.widgets.append((lip,'ip'))
+        self.ipent=tk.Entry(inp);self.ipent.grid(row=0,column=1,padx=5);self.ipent.insert(0,'192.168.1.1')
+        bping=tk.Button(inp,text=t('ping'),command=self.do_ping,bg=th['btn_bg'],fg=th['btn_fg'])
+        bping.grid(row=0,column=2);self.widgets.append((bping,'ping'))
+        # Producer/Model
+        lpr=tk.Label(inp,text=t('producer'),bg=th['panel_bg'],fg=th['fg']);lpr.grid(row=1,column=0);self.widgets.append((lpr,'producer'))
+        self.prcb=ttk.Combobox(inp,values=get_producers());self.prcb.grid(row=1,column=1)
+        self.prcb.bind('<<ComboboxSelected>>',lambda e:self.update_models())
+        lmd=tk.Label(inp,text=t('model'),bg=th['panel_bg'],fg=th['fg']);lmd.grid(row=2,column=0);self.widgets.append((lmd,'model'))
+        self.mocb=ttk.Combobox(inp,values=get_all_models());self.mocb.grid(row=2,column=1)
+        self.mocb.bind('<<ComboboxSelected>>',lambda e:self.show_specs())
+        # Search
+        lsh=tk.Label(inp,text=t('search'),bg=th['panel_bg'],fg=th['fg']);lsh.grid(row=3,column=0);self.widgets.append((lsh,'search'))
+        self.shent=tk.Entry(inp);self.shent.grid(row=3,column=1)
+        bsh=tk.Button(inp,text=t('search_btn'),command=self.do_search,bg=th['btn_bg'],fg=th['btn_fg'])
+        bsh.grid(row=3,column=2);self.widgets.append((bsh,'search_btn'))
+
+        # Show/Clear
+        bc=tk.Frame(left,bg=th['bg']);bc.pack(fill=tk.X,pady=5)
+        bshw=tk.Button(bc,text=t('show'),command=self.show_specs,bg=th['btn_bg'],fg=th['btn_fg'])
+        bshw.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=5);self.widgets.append((bshw,'show'))
+        bclr=tk.Button(bc,text=t('clear'),command=lambda:self.out.delete('1.0',tk.END),bg=th['btn_bg'],fg=th['btn_fg'])
+        bclr.pack(side=tk.LEFT,expand=True,fill=tk.X,padx=5);self.widgets.append((bclr,'clear'))
+
+        # Output
+        of=tk.LabelFrame(left,text=t('results'),bg=th['panel_bg'],fg=th['fg']);of.pack(fill=tk.BOTH,expand=True)
+        self.out=scrolledtext.ScrolledText(of,bg=th['text_bg'],fg=th['text_fg']);self.out.pack(fill=tk.BOTH,expand=True)
+
+        # Images sidebar
+        imf=tk.LabelFrame(right,text=t('images'),bg=th['panel_bg'],fg=th['fg']);imf.pack(fill=tk.BOTH,expand=True)
+        self.imgs=[]
+        for _ in range(3):
+            lbl=tk.Label(imf,text=t('select'),bg=th['panel_bg'],fg=th['fg'],relief=tk.SUNKEN,height=6)
+            lbl.pack(fill=tk.BOTH,expand=True,pady=2);self.imgs.append(lbl)
+
+        # Status
+        self.status=tk.Label(self.root,text=t('ready'),bg=th['bg'],fg=th['fg']);self.status.pack(side=tk.BOTTOM,fill=tk.X)
+
+    def apply_theme(self,name):
+        self.theme=name
+        colors=THEMES[name]
+        self.root.configure(bg=colors['bg'])
+        def rc(w):
+            cls=w.winfo_class()
+            if cls in ('Frame','Labelframe'): w.configure(bg=colors['bg'])
+            if cls=='Label': w.configure(bg=colors['bg'],fg=colors['fg'])
+            if cls=='Button': w.configure(bg=colors['btn_bg'],fg=colors['btn_fg'])
+            if cls=='LabelFrame': w.configure(bg=colors['panel_bg'],fg=colors['fg'])
+            if cls=='Text': w.configure(bg=colors['text_bg'],fg=colors['text_fg'])
+            for c in w.winfo_children(): rc(c)
+        rc(self.root)
+
+    def toggle_lang(self):
+        self.lang='en' if self.lang=='pl' else 'pl'
+        for widget,key in self.widgets:
+            if key: widget.config(text=tr(key,self.lang))
+        self.root.title(tr('title',self.lang))
+        self.status.config(text=tr('ready',self.lang))
+
+    def update_models(self):
+        prod=self.prcb.get(); lst=[m for m,s in ROUTER_DATABASE.items() if s.get('Producent')==prod]
+        self.mocb.configure(values=sorted(lst))
+
+    def do_search(self):
+        q=self.shent.get().strip()
+        if q:
+            lst=search_routers(q); self.mocb.configure(values=lst)
+            if lst: self.mocb.set(lst[0]); self.show_specs()
+
+    def do_ping(self):
+        ip=self.ipent.get().strip()
+        if not ip: return messagebox.showwarning("Error",tr('enter_ip',self.lang))
+        self.out.delete('1.0',tk.END)
         try:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            text_w = bbox[2] - bbox[0]
-            draw.text(((width - text_w) / 2, y_pos), line, fill='#ecf0f1', font=font)
+            cmd=['ping','-n' if platform.system().lower()=='windows' else '-c','4',ip]
+            r=subprocess.run(cmd,capture_output=True,text=True,timeout=10)
+            self.out.insert(tk.END,r.stdout)
         except:
-            draw.text((width//2 - 100, y_pos), line, fill='#ecf0f1', font=font)
-        y_pos += 35
-    return img
+            self.out.insert(tk.END,"Ping error\n")
 
-class AutocompleteEntry(tk.Frame):
-    def __init__(self, parent, autocomplete_list, **kwargs):
-        tk.Frame.__init__(self, parent)
-        self.autocomplete_list = autocomplete_list
-        self.var = tk.StringVar()
-        self.entry = tk.Entry(self, textvariable=self.var, **kwargs)
-        self.entry.pack(fill=tk.BOTH, expand=True)
-        self.listbox = None
-        self.listbox_frame = None
-        self.var.trace('w', self.on_change)
-        self.entry.bind("<Return>", self.on_enter)
-        self.entry.bind("<Up>", self.move_up)
-        self.entry.bind("<Down>", self.move_down)
-        self.entry.bind("<FocusOut>", self.on_focus_out)
-    def on_change(self, *args):
-        if self.var.get() == '':
-            self.destroy_listbox()
-        else:
-            words = self.autocomplete()
-            if words:
-                self.show_listbox(words)
-            else:
-                self.destroy_listbox()
-    def autocomplete(self):
-        text = self.var.get().lower()
-        matches = [item for item in self.autocomplete_list if text in item.lower()]
-        return sorted(matches)[:8]
-    def show_listbox(self, words):
-        if not self.listbox_frame:
-            self.listbox_frame = tk.Frame(self)
-            self.listbox_frame.pack(fill=tk.BOTH, expand=True)
-            self.listbox = tk.Listbox(self.listbox_frame, height=min(8, len(words)))
-            self.listbox.pack(fill=tk.BOTH, expand=True)
-            self.listbox.bind("<Button-1>", self.on_select)
-            self.listbox.bind("<Return>", self.on_select)
-        self.listbox.delete(0, tk.END)
-        for w in words:
-            self.listbox.insert(tk.END, w)
-    def destroy_listbox(self):
-        if self.listbox_frame:
-            self.listbox_frame.destroy()
-            self.listbox_frame = None
-            self.listbox = None
-    def on_select(self, event=None):
-        if self.listbox:
-            selection = self.listbox.get(tk.ACTIVE)
-            self.var.set(selection)
-            self.destroy_listbox()
-            self.entry.icursor(tk.END)
-    def on_enter(self, event=None):
-        if self.listbox:
-            self.on_select()
-        return 'break'
-    def move_up(self, event):
-        if self.listbox:
-            if self.listbox.curselection():
-                index = self.listbox.curselection()[0]
-                if index > 0:
-                    self.listbox.selection_clear(0, tk.END)
-                    self.listbox.selection_set(index - 1)
-                    self.listbox.activate(index - 1)
-            return 'break'
-    def move_down(self, event):
-        if self.listbox:
-            if self.listbox.curselection():
-                index = self.listbox.curselection()[0]
-                if index < self.listbox.size() - 1:
-                    self.listbox.selection_clear(0, tk.END)
-                    self.listbox.selection_set(index + 1)
-                    self.listbox.activate(index + 1)
-            else:
-                self.listbox.selection_set(0)
-                self.listbox.activate(0)
-            return 'break'
-    def on_focus_out(self, event):
-        self.after(200, self.destroy_listbox)
-    def get(self):
-        return self.var.get()
-    def set(self, value):
-        self.var.set(value)
+    def scan_network(self):
+        self.out.delete('1.0',tk.END); self.out.insert(tk.END,"Network scan...\n")
+        def run():
+            devs=scan_network(); t=f"Found {len(devs)} devices:\n"
+            for d in devs: t+=f"{d['ip']} {d['mac']} {d['hostname']}\n"
+            self.out.insert(tk.END,t)
+        threading.Thread(target=run,daemon=True).start()
 
-class RouterDiagnosticApp:
-    def __init__(self, root):
-        self.root = root
-        self.current_lang = 'pl'
-        self.root.title(TRANSLATIONS[self.current_lang]['title'])
-        self.root.geometry("1400x800")
-        self.photo_images = []
-        style = ttk.Style()
-        style.theme_use('clam')
-        self.create_widgets()
-    def _(self, key):
-        return TRANSLATIONS[self.current_lang].get(key, key)
-    def switch_language(self):
-        self.current_lang = 'en' if self.current_lang == 'pl' else 'pl'
-        self.refresh_ui()
-    def refresh_ui(self):
-        self.root.title(self._('title'))
-        self.db_info_label.config(text=self._('db_info').format(len(ROUTER_DATABASE)))
-        self.input_frame.config(text=self._('params'))
-        self.ip_label.config(text=self._('ip_label'))
-        self.ping_btn.config(text=self._('ping_btn'))
-        self.producer_label.config(text=self._('producer_label'))
-        self.model_label.config(text=self._('model_label'))
-        self.search_label.config(text=self._('search_label'))
-        self.search_btn.config(text=self._('search_btn'))
-        self.show_btn.config(text=self._('show_btn'))
-        self.clear_btn.config(text=self._('clear_btn'))
-        self.output_frame.config(text=self._('results'))
-        self.status_bar.config(text=self._('status_ready'))
-        self.lang_label.config(text=self._('language'))
-        self.image_frame.config(text=self._('router_images'))
-    def create_widgets(self):
-        info_frame = tk.Frame(self.root, bg='#2c3e50', height=80)
-        info_frame.pack(fill=tk.X)
-        lang_frame = tk.Frame(info_frame, bg='#2c3e50')
-        lang_frame.pack(side=tk.RIGHT, padx=10, pady=5)
-        self.lang_label = tk.Label(lang_frame, text=self._('language'), font=('Arial', 9), bg='#2c3e50', fg='white')
-        self.lang_label.pack(side=tk.LEFT, padx=5)
-        lang_btn = tk.Button(lang_frame, text="🇵🇱 PL / 🇬🇧 EN", command=self.switch_language,
-                            bg='#34495e', fg='white', font=('Arial', 9, 'bold'))
-        lang_btn.pack(side=tk.LEFT)
-        title_label = tk.Label(info_frame, text="🔍 Router Diagnostic Tool", 
-                              font=('Arial', 16, 'bold'), bg='#2c3e50', fg='white')
-        title_label.pack(pady=10)
-        self.db_info_label = tk.Label(info_frame, 
-                          text=self._('db_info').format(len(ROUTER_DATABASE)),
-                          font=('Arial', 9), bg='#2c3e50', fg='#ecf0f1')
-        self.db_info_label.pack()
-        main_container = tk.Frame(self.root)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        left_panel = tk.Frame(main_container)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        self.input_frame = tk.LabelFrame(left_panel, text=self._('params'), font=('Arial', 10, 'bold'), padx=10, pady=10)
-        self.input_frame.pack(fill=tk.X, pady=(0, 10))
-        self.ip_label = tk.Label(self.input_frame, text=self._('ip_label'), font=('Arial', 9))
-        self.ip_label.grid(row=0, column=0, sticky='w', pady=5)
-        self.ip_entry = tk.Entry(self.input_frame, width=30, font=('Arial', 9))
-        self.ip_entry.grid(row=0, column=1, sticky='w', pady=5, padx=5)
-        self.ip_entry.insert(0, "192.168.1.1")
-        self.ping_btn = tk.Button(self.input_frame, text=self._('ping_btn'), command=self.ping_router, 
-                           bg='#3498db', fg='white', font=('Arial', 9))
-        self.ping_btn.grid(row=0, column=2, padx=5)
-        self.producer_label = tk.Label(self.input_frame, text=self._('producer_label'), font=('Arial', 9))
-        self.producer_label.grid(row=1, column=0, sticky='w', pady=5)
-        self.producer_var = tk.StringVar()
-        self.producer_combo = ttk.Combobox(self.input_frame, textvariable=self.producer_var, 
-                                          values=get_producers(), width=27, font=('Arial', 9))
-        self.producer_combo.grid(row=1, column=1, sticky='w', pady=5, padx=5)
-        self.producer_combo.bind("<<ComboboxSelected>>", self.update_models)
-        self.model_label = tk.Label(self.input_frame, text=self._('model_label'), font=('Arial', 9))
-        self.model_label.grid(row=2, column=0, sticky='w', pady=5)
-        self.router_var = tk.StringVar()
-        self.router_combo = ttk.Combobox(self.input_frame, textvariable=self.router_var, 
-                                        values=get_all_models(), width=27, font=('Arial', 9))
-        self.router_combo.grid(row=2, column=1, sticky='w', pady=5, padx=5)
-        self.router_combo.bind("<<ComboboxSelected>>", self.show_spec)
-        self.search_label = tk.Label(self.input_frame, text=self._('search_label'), font=('Arial', 9))
-        self.search_label.grid(row=3, column=0, sticky='w', pady=5)
-        self.search_entry = AutocompleteEntry(self.input_frame, autocomplete_list=get_all_models(), 
-                                             font=('Arial', 9), width=28)
-        self.search_entry.grid(row=3, column=1, sticky='w', pady=5, padx=5)
-        self.search_btn = tk.Button(self.input_frame, text=self._('search_btn'), command=self.search_models,
-                             bg='#27ae60', fg='white', font=('Arial', 9))
-        self.search_btn.grid(row=3, column=2, padx=5)
-        btn_frame = tk.Frame(left_panel)
-        btn_frame.pack(fill=tk.X, pady=5)
-        self.show_btn = tk.Button(btn_frame, text=self._('show_btn'), command=self.show_spec,
-                           bg='#e67e22', fg='white', font=('Arial', 10, 'bold'), height=2)
-        self.show_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        self.clear_btn = tk.Button(btn_frame, text=self._('clear_btn'), command=self.clear_output,
-                            bg='#95a5a6', fg='white', font=('Arial', 10, 'bold'), height=2)
-        self.clear_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        self.output_frame = tk.LabelFrame(left_panel, text=self._('results'), 
-                                    font=('Arial', 10, 'bold'), padx=10, pady=10)
-        self.output_frame.pack(fill=tk.BOTH, expand=True)
-        self.output_text = scrolledtext.ScrolledText(self.output_frame, wrap=tk.WORD, 
-                                                     font=('Courier New', 9), height=20)
-        self.output_text.pack(fill=tk.BOTH, expand=True)
-        right_panel = tk.Frame(main_container, width=550)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(5, 0))
-        right_panel.pack_propagate(False)
-        self.image_frame = tk.LabelFrame(right_panel, text=self._('router_images'), 
-                                        font=('Arial', 10, 'bold'), padx=10, pady=10)
-        self.image_frame.pack(fill=tk.BOTH, expand=True)
-        self.image_labels = []
-        for i in range(3):
-            lbl = tk.Label(self.image_frame, text=self._('select_router'), 
-                          font=('Arial', 10), fg='gray',
-                          bg='#ecf0f1', relief=tk.SUNKEN, bd=2, height=6)
-            lbl.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-            self.image_labels.append(lbl)
-        self.status_bar = tk.Label(self.root, text=self._('status_ready'), 
-                                  bd=1, relief=tk.SUNKEN, anchor=tk.W, font=('Arial', 8))
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-    def load_google_images_simple(self, model_name, producer):
-        for lbl in self.image_labels:
-            lbl.config(image='', text=self._('loading_images'))
-        self.photo_images = []
-        def download_and_display():
-            try:
-                image_urls = google_images_scrape(model_name, max_images=3)
-                if not image_urls:
-                    print("Brak URLi, placeholdery")
-                    for idx in range(3):
-                        img = create_fallback_placeholder(model_name, producer)
-                        if img:
-                            photo = ImageTk.PhotoImage(img)
-                            self.root.after(0, lambda p=photo, i=idx: self.display_single_image(p, i))
-                    return
-                for idx, img_url in enumerate(image_urls):
-                    try:
-                        img_data = requests.get(img_url, timeout=10).content
-                        img = Image.open(BytesIO(img_data))
-                        img.thumbnail((500, 180))
-                        photo = ImageTk.PhotoImage(img)
-                        self.root.after(0, lambda p=photo, i=idx: self.display_single_image(p, i))
-                    except Exception as e:
-                        print(f"Obrazek {idx+1} błąd: {e}")
-            except Exception as e:
-                print(f"Google scraping EX: {e}")
-        threading.Thread(target=download_and_display, daemon=True).start()
-    def display_single_image(self, photo, index):
-        if index < len(self.image_labels):
-            self.image_labels[index].config(image=photo, text='')
-            if len(self.photo_images) <= index:
-                self.photo_images.append(photo)
-            else:
-                self.photo_images[index] = photo
-    def update_models(self, event=None):
-        producer = self.producer_var.get()
-        if producer:
-            models = [model for model, spec in ROUTER_DATABASE.items() 
-                     if spec.get('Producent') == producer]
-            self.router_combo['values'] = sorted(models)
-            self.router_var.set('')
-            self.output_text.delete('1.0', tk.END)
-            for lbl in self.image_labels:
-                lbl.config(image='', text=self._('select_router'))
-            self.photo_images = []
-            self.status_bar.config(text=self._('status_found').format(len(models), producer))
-    def search_models(self):
-        keyword = self.search_entry.get()
-        if keyword:
-            results = search_routers(keyword)
-            self.router_combo['values'] = results
-            self.status_bar.config(text=self._('status_search').format(len(results), keyword))
-            if results:
-                self.router_var.set(results[0])
-                self.show_spec()
-        else:
-            messagebox.showwarning(self._('warn_no_keyword'), self._('warn_enter_keyword'))
-    def ping_router(self):
-        ip = self.ip_entry.get()
-        if not ip:
-            messagebox.showwarning(self._('warn_no_ip'), self._('warn_enter_ip'))
-            return
-        self.status_bar.config(text=self._('status_ping').format(ip))
-        self.output_text.delete('1.0', tk.END)
-        self.output_text.insert(tk.END, self._('connection_test').format(ip))
-        try:
-            param = '-n' if platform.system().lower() == 'windows' else '-c'
-            command = ['ping', param, '4', ip]
-            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
-            self.output_text.insert(tk.END, result.stdout)
-            self.status_bar.config(text=self._('status_completed'))
-        except subprocess.TimeoutExpired:
-            self.output_text.insert(tk.END, "BŁĄD: Timeout\n")
-        except Exception as e:
-            self.output_text.insert(tk.END, f"ERROR: {str(e)}\n")
-    def show_spec(self, event=None):
-        selected = self.router_var.get()
-        if not selected:
-            messagebox.showwarning(self._('warn_no_selection'), self._('warn_select_model'))
-            return
-        spec = ROUTER_DATABASE.get(selected, {})
-        if not spec:
-            self.output_text.delete('1.0', tk.END)
-            self.output_text.insert(tk.END, self._('no_spec'))
-            return
-        self.output_text.delete('1.0', tk.END)
-        self.output_text.insert(tk.END, "=" * 80 + "\n")
-        self.output_text.insert(tk.END, self._('spec_header').format(selected))
-        self.output_text.insert(tk.END, "=" * 80 + "\n\n")
-        for key, value in spec.items():
-            if key != 'Image URL':
-                self.output_text.insert(tk.END, f"{key:.<35} {value}\n")
-        self.output_text.insert(tk.END, "\n" + "=" * 80 + "\n")
-        self.status_bar.config(text=self._('status_displayed').format(selected))
-        producer = spec.get('Producent', '')
-        self.load_google_images_simple(selected, producer)
-    def clear_output(self):
-        self.output_text.delete('1.0', tk.END)
-        for lbl in self.image_labels:
-            lbl.config(image='', text=self._('select_router'))
-        self.photo_images = []
-        self.status_bar.config(text=self._('status_ready'))
+    def check_firmware(self):
+        ip=self.ipent.get().strip()
+        if not ip: return messagebox.showwarning("Error",tr('enter_ip',self.lang))
+        info=check_firmware_updates(ip)
+        self.out.delete('1.0',tk.END)
+        self.out.insert(tk.END,f"Router {ip}\nCurrent: {info['current']}\nLatest: {info['latest']}\nStatus: {info['status']}\n")
 
-def main():
-    root = tk.Tk()
-    app = RouterDiagnosticApp(root)
+    def speed_test(self):
+        self.out.delete('1.0',tk.END); self.out.insert(tk.END,"Speed test...\n")
+        def run():
+            r=run_speed_test();self.out.insert(tk.END,f"Download: {r['download']} Mbps\nUpload: {r['upload']} Mbps\n")
+        threading.Thread(target=run,daemon=True).start()
+
+    def show_specs(self):
+        m=self.mocb.get().strip()
+        if not m: return
+        spec=ROUTER_DATABASE.get(m,{})
+        self.out.delete('1.0',tk.END)
+        self.out.insert(tk.END,"="*50+f"\nSpecs: {m}\n"+"="*50+"\n")
+        for k,v in spec.items():
+            if k!='Image URL': self.out.insert(tk.END,f"{k}: {v}\n")
+        self.load_images(m)
+
+    def load_images(self,m):
+        for l in self.imgs: l.config(text=tr('loading',self.lang),image='')
+        def run():
+            urls=fetch_images(m,3)
+            if not urls:
+                for l in self.imgs: l.config(text="No image")
+                return
+            for i,u in enumerate(urls):
+                try:
+                    data=requests.get(u,timeout=5).content
+                    img=Image.open(BytesIO(data));img.thumbnail((300,150))
+                    ph=ImageTk.PhotoImage(img)
+                    l=self.imgs[i];l.config(image=ph,text='');l.image=ph
+                except: pass
+        threading.Thread(target=run,daemon=True).start()
+
+    def compare_routers(self):
+        m1=self.mocb.get().strip();m2=self.shent.get().strip()
+        if not m1 or not m2: return messagebox.showwarning("Error",tr('select_models',self.lang))
+        win=tk.Toplevel(self.root);win.title("Compare")
+        tbox=scrolledtext.ScrolledText(win);tbox.pack(fill=tk.BOTH,expand=True)
+        tbox.insert('1.0',compare_routers([m1,m2]))
+
+    def export_csv(self):
+        fn=filedialog.asksaveasfilename(defaultextension=".csv")
+        if fn:
+            with open(fn,'w',newline='',encoding='utf-8') as f:
+                w=csv.writer(f);w.writerow(['Model','Producer','Year'])
+                for m,s in ROUTER_DATABASE.items():
+                    w.writerow([m,s.get('Producent'),s.get('Data produkcji')])
+            messagebox.showinfo("Export","Saved to "+fn)
+
+if __name__=='__main__':
+    root=tk.Tk()
+    App(root)
     root.mainloop()
-
-if __name__ == "__main__":
-    main()
