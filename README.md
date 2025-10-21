@@ -1,107 +1,114 @@
-# 🔍 Router Diagnostic Tool
+Router Diagnostic Tool
+A comprehensive, multilingual (Polish/English) router diagnostic application with an extended database of 829 models from 2005–2025—including live preview of router appearance from Google Images.
 
-**Professional Router Management & Diagnostic System**
+🚀 Features
+Database of 829 routers (2005–2025)
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Database](https://img.shields.io/badge/Routers-829-orange.svg)
+Live Google Images preview (no browser required!)
 
-A comprehensive, multilingual (🇵🇱 Polish / 🇬🇧 English) router diagnostic and management application with an extensive database of approximately 829 router models from 2005–2025.
+Search and filter by producer, model, or features
 
----
+Ping/network diagnostics
 
-## 📸 Screenshot
+Detailed spec view for each router
 
-![Application Screenshot](pic.jpg)
+Multilingual interface: 🇵🇱 Polish / 🇬🇧 English
 
-*(Place `pic.jpg` in the repository root to render this image.)*
+No Selenium, no Chrome required
 
----
+💻 Technologies
+Python 3.8+
 
-## ✨ Key Features
+Tkinter (GUI)
 
-### 🌐 Network Diagnostics
-- **Ping Test** – Real-time connection testing to router
-- **Network Analysis** – Advanced diagnostics with detailed output
-- **Multi-router Support** – Test multiple devices simultaneously
+Pillow (image handling)
 
-### 📊 Extensive Router Database
-- **~829 Models** – Complete router database (2005–2025)
-- **0 Built-in Photos** – Images loaded dynamically; none embedded in README
-- **30+ Specifications** – Detailed technical information including:
-  - Wi-Fi standards (802.11g/n/ac/ax/be)
-  - Ethernet speeds (100 Mbps–10 Gbps)
-  - Band support (Single/Dual/Tri/Quad-band)
-  - SIM card slot (4G/5G support)
-  - USB ports (2.0/3.0/3.1)
-  - PoE support
-  - VPN Server/Client
-  - Mesh networking (AiMesh, OneMesh, Velop etc.)
-  - MU-MIMO & OFDMA
-  - Beamforming
-  - QoS & Parental Controls
-  - And many more…
+Requests, BeautifulSoup (Google image scraping)
 
-### 🏢 Supported Manufacturers
-Linksys, ASUS, Netgear, TP-Link, D-Link, Apple, Google, Amazon, Xiaomi, Ubiquiti, Synology, MikroTik, Buffalo, Zyxel, Huawei, ZTE, Tenda, Cudy and more.
+CSV (database)
 
-### 🌍 Multilingual Interface
-- **Polish (🇵🇱)** and **English (🇬🇧)**
-- Easy language switch
+subprocess (network tests)
 
----
-
-## 📦 Installation
-
-### Prerequisites
-```bash
-Python 3.8 or higher
-```
-
-### Install Dependencies
-```bash
-pip install pillow
-```
-
-### Quick Start
-```bash
-# 1. Clone repository
+🛠 Installation
+1. Clone
+bash
 git clone https://github.com/yourusername/router-diagnostic-tool.git
 cd router-diagnostic-tool
-
-# 2. Run application
+2. Install dependencies
+bash
+pip install pillow requests beautifulsoup4
+3. Run
+bash
 python router_diag_gui_multilang.py
-```
+⏱ Quick Start
+Run program
 
----
+Select router manufacturer and model
 
-## 📁 Project Structure
+View specs and instant photos from Google Images in the right panel
 
-```
+Use search/autocomplete for quick filtering
+
+📋 Project Structure
+text
 router-diagnostic-tool/
-├── router_diag_gui_multilang.py   # Main GUI application
-├── router_database.py            # Database library with hardcoded image URLs
-├── router_database.csv           # Router specifications database (~829 models)
-├── pic.jpg                       # Screenshot displayed above
-├── requirements.txt              # Python dependencies
-└── README.md                     # Project documentation (this file)
-```
+├── router_diag_gui_multilang.py    # Main application
+├── router_database.py              # Database helper, loads .csv
+├── router_database.csv             # Router data (829 models)
+├── requirements.txt                # Python dependencies
+├── README.md                       # Documentation (this file)
+📊 Example Specifications
+Field	Example
+Model	TP-Link Archer C7
+Producer	TP-Link
+Production Year	2016
+WiFi Power	20 dBm
+Ethernet Speed	1 Gbps
+WiFi Standard	802.11ac Dual Band
+5GHz Support	Yes
+Firmware Version	3.15.3 Build 18020
+Max WiFi Throughput	1750 Mbps
+Max Ethernet Speed	1 Gbps
+Features	MU-MIMO, Beamforming, WPS, USB
+🖼 Router Image Live Preview
+Whenever you choose a model, the app automatically:
 
----
+Queries Google Images for your router
 
-## 🚀 Usage Guide
+Shows up to 3 images directly in the app panel (no browser needed)
 
-1. **Launch Application**
-   ```bash
-   python router_diag_gui_multilang.py
-   ```
-2. **Network Testing** – Enter router IP, click Ping
-3. **Router Lookup** – Select manufacturer and model, click Show Specification
-4. **Search** – Use search box with autocomplete
-5. **Switch Language** – Click PL/EN toggle
+Falls back to a custom placeholder if no images found
 
----
+All images are loaded live from the internet and are not included in the repository.
 
-## 📝 License
+🌍 Multilingual Support
+Polish and English UI
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Convenient language switch button
+
+📝 License
+MIT License. See LICENSE for full text.
+
+🤝 Contributing
+Pull requests and issues are welcome! Please update documentation and add tests when relevant.
+
+📞 Support
+Issues: https://github.com/yourusername/router-diagnostic-tool/issues
+
+Email: youremail@example.com
+
+📣 Credits
+BeautifulSoup
+
+Pillow
+
+Google Images
+
+Community contributors
+
+🧑‍💻 Status
+Stable: Version 1.0 (October 2025)
+
+Database: 829 router models
+
+Live image preview (Google Images) without browser or third-party API
